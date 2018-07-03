@@ -29,7 +29,7 @@ type PublisherSubscriber interface {
 ### Publishing
 
 ```go
-c, err := smplmsg.NewPublisher("localhost:321", "exchangeName", "clientID")
+c, err := smplmsg.NewPublisher("localhost:321", "exchangeName", "clientID", SetContentType("application/json"))
 if err != nil {
   return err
 }
@@ -52,7 +52,6 @@ if err != nil {
 msgCh, errCh := c.Consume("routingKey")
 for {
     select {
-    conErr := <-errchan:
     case err := <-errCh:
         return err
     case msg := <-msgCh:

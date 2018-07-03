@@ -8,12 +8,11 @@ import (
 )
 
 func (c *client) monitorConnection() {
-	aqmpErrCh := c.amqpErrChan()
 	for {
 		select {
 		case <-c.endMonitoring:
 			return
-		case <-aqmpErrCh:
+		case <-c.amqpCh.errCh:
 			err := c.reconnect()
 			if err != nil {
 				time.Sleep(c.retryTimeout)
@@ -38,11 +37,11 @@ func (c *client) reconnect() error {
 		return errors.Wrap(err, "failed to open channel")
 	}
 
-	c.amqpCh.Store(amqpCh{
+	c.amqpCh = &amqpCh{
 		conn:  conn,
 		ch:    ch,
 		errCh: conn.NotifyClose(make(chan *amqp.Error)),
-	})
+	}
 
 	err = declareExchange(ch, c.exchange)
 	if err != nil {

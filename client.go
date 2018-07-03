@@ -3,7 +3,6 @@ package smplmsg
 import (
 	"crypto/rand"
 	"io"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -38,7 +37,7 @@ type client struct {
 	endMonitoring chan struct{}
 	timeout       time.Duration
 	retryTimeout  time.Duration
-	amqpCh        atomic.Value
+	amqpCh        *amqpCh
 	contentType   ContentType
 	deliveryMode  DeliveryMode
 }
@@ -50,8 +49,8 @@ type amqpCh struct {
 }
 
 // NewSubscriber initializes and returns a Client that implements the Subscriber interface
-func NewSubscriber(msgURI, exchange, clientID string, opts ...ClientOption) (Subscriber, error) {
-	c, err := newClient(msgURI, exchange, clientID, opts...)
+func NewSubscriber(URI, exchange, clientID string, opts ...ClientOption) (Subscriber, error) {
+	c, err := newClient(URI, exchange, clientID, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initilize new subscriber")
 	}
@@ -60,8 +59,8 @@ func NewSubscriber(msgURI, exchange, clientID string, opts ...ClientOption) (Sub
 }
 
 // NewPublisher initializes and returns a Client that implements the Publisher interface
-func NewPublisher(msgURI, exchange, clientID string, opts ...ClientOption) (Publisher, error) {
-	c, err := newClient(msgURI, exchange, clientID, opts...)
+func NewPublisher(URI, exchange, clientID string, opts ...ClientOption) (Publisher, error) {
+	c, err := newClient(URI, exchange, clientID, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initilize new publisher")
 	}
@@ -70,8 +69,8 @@ func NewPublisher(msgURI, exchange, clientID string, opts ...ClientOption) (Publ
 }
 
 // NewPubSub initializes and returns a Client that implements the PublisherSubscriber interface
-func NewPubSub(msgURI, exchange, clientID string, opts ...ClientOption) (PublisherSubscriber, error) {
-	c, err := newClient(msgURI, exchange, clientID, opts...)
+func NewPubSub(URI, exchange, clientID string, opts ...ClientOption) (PublisherSubscriber, error) {
+	c, err := newClient(URI, exchange, clientID, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initilize new pub/sub")
 	}
@@ -79,8 +78,8 @@ func NewPubSub(msgURI, exchange, clientID string, opts ...ClientOption) (Publish
 	return c, nil
 }
 
-func newClient(msgqURI, exchange, clientID string, opts ...ClientOption) (*client, error) {
-	conn, err := amqp.Dial(msgqURI)
+func newClient(URI, exchange, clientID string, opts ...ClientOption) (*client, error) {
+	conn, err := amqp.Dial(URI)
 	if err != nil {
 		return nil, err
 	}
@@ -91,24 +90,23 @@ func newClient(msgqURI, exchange, clientID string, opts ...ClientOption) (*clien
 	}
 
 	c := &client{
-		uri:           msgqURI,
+		uri:           URI,
 		clientID:      clientID,
 		exchange:      exchange,
 		contentType:   OctetStream,
 		deliveryMode:  Transient,
 		retryTimeout:  defaultRetryTimeout,
 		endMonitoring: make(chan struct{}),
+		amqpCh: &amqpCh{
+			conn:  conn,
+			ch:    ch,
+			errCh: conn.NotifyClose(make(chan *amqp.Error)),
+		},
 	}
 
 	for _, opt := range opts {
 		opt(c)
 	}
-
-	c.amqpCh.Store(&amqpCh{
-		conn:  conn,
-		ch:    ch,
-		errCh: conn.NotifyClose(make(chan *amqp.Error)),
-	})
 
 	err = declareExchange(ch, exchange)
 	if err != nil {
@@ -120,27 +118,15 @@ func newClient(msgqURI, exchange, clientID string, opts ...ClientOption) (*clien
 	return c, nil
 }
 
-func (c *client) amqpCon() *amqp.Connection {
-	return c.amqpCh.Load().(amqpCh).conn
-}
-
-func (c *client) amqpChannel() *amqp.Channel {
-	return c.amqpCh.Load().(amqpCh).ch
-}
-
-func (c *client) amqpErrChan() chan *amqp.Error {
-	return c.amqpCh.Load().(amqpCh).errCh
-}
-
 // Close closes the channels
 func (c *client) Close() error {
 	close(c.endMonitoring)
 
-	if err := c.amqpChannel().Close(); err != nil {
+	if err := c.amqpCh.ch.Close(); err != nil {
 		return errors.Wrap(err, "failed to close channel")
 	}
 
-	if err := c.amqpCon().Close(); err != nil {
+	if err := c.amqpCh.conn.Close(); err != nil {
 		return errors.Wrap(err, "failed to close connection")
 	}
 
@@ -173,7 +159,5 @@ func uuid() string {
 
 	uuid := make([]byte, 16)
 	fillWithRandomBits(uuid)
-	uuid[6] = (uuid[6] & 0x0f) | 0x40 // Version 4
-	uuid[8] = (uuid[8] & 0x3f) | 0x80 // Variant is 10
 	return string(uuid)
 }

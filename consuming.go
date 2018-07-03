@@ -20,7 +20,7 @@ func (c *client) Consume(routingKey string) (<-chan amqp.Delivery, <-chan error)
 		return nil, errCh
 	}
 
-	ch, err := c.amqpChannel().Consume(
+	ch, err := c.amqpCh.ch.Consume(
 		queue,
 		uuid(),
 		false,
@@ -50,7 +50,7 @@ func validateMessage(delivCh <-chan amqp.Delivery, errCh chan error) {
 }
 
 func (c *client) declareQueue(queue, routingKey string) error {
-	q, err := c.amqpChannel().QueueDeclare(
+	q, err := c.amqpCh.ch.QueueDeclare(
 		queue, // name of the queue
 		true,  // durable
 		false, // delete when unused
@@ -62,7 +62,7 @@ func (c *client) declareQueue(queue, routingKey string) error {
 		return errors.Wrap(err, fmt.Sprintf("failed to declare queue (%s)", queue))
 	}
 
-	err = c.amqpChannel().QueueBind(
+	err = c.amqpCh.ch.QueueBind(
 		q.Name,
 		routingKey,
 		c.exchange,

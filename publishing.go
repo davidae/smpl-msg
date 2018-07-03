@@ -18,7 +18,7 @@ func (c *client) Publish(routing string, headers amqp.Table, payload []byte) err
 		MessageId:    uuid(),
 		Timestamp:    time.Now(),
 	}
-	err := c.amqpChannel().Publish(
+	err := c.amqpCh.ch.Publish(
 		c.exchange,
 		routing,
 		false,
