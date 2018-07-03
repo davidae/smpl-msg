@@ -8,7 +8,8 @@ import (
 	"github.com/streadway/amqp"
 )
 
-func (c *Client) Publish(routing string, headers amqp.Table, payload []byte) error {
+// Publish will send a message with a given routing key on the client's exchange
+func (c *client) Publish(routing string, headers amqp.Table, payload []byte) error {
 	pub := amqp.Publishing{
 		DeliveryMode: uint8(c.deliveryMode),
 		ContentType:  string(c.contentType),

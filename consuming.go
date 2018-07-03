@@ -7,7 +7,8 @@ import (
 	"github.com/streadway/amqp"
 )
 
-func (c *Client) Consume(routingKey string) (<-chan amqp.Delivery, <-chan error) {
+// Consume will consume message with a given routing key on the client's exchange
+func (c *client) Consume(routingKey string) (<-chan amqp.Delivery, <-chan error) {
 	var (
 		errCh = make(chan error)
 		queue = fmt.Sprintf("%s.%s.%s", c.exchange, c.clientID, routingKey)
@@ -48,7 +49,7 @@ func validateMessage(delivCh <-chan amqp.Delivery, errCh chan error) {
 	}
 }
 
-func (c *Client) declareQueue(queue, routingKey string) error {
+func (c *client) declareQueue(queue, routingKey string) error {
 	q, err := c.amqpChannel().QueueDeclare(
 		queue, // name of the queue
 		true,  // durable

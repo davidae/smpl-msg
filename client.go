@@ -2,7 +2,6 @@ package smplmsg
 
 import (
 	"crypto/rand"
-	"fmt"
 	"io"
 	"sync/atomic"
 	"time"
@@ -11,25 +10,37 @@ import (
 	"github.com/streadway/amqp"
 )
 
+// DeliveryMode is the type of MIME type used to delivery of messages
 type DeliveryMode uint8
+
+// ContentType is the type of MIME type used for the content of the messages
 type ContentType string
 
 const (
-	Transient  DeliveryMode = 1
+	// Transient means higher throughput but messages will not be restored on broker restart
+	Transient DeliveryMode = 1
+
+	// Persistent means lower throughput but messages will be restored on broker restart
 	Persistent DeliveryMode = 2
 
+	// OctetStream is a MIME type used as a content type
 	OctetStream ContentType = "application/octeet-stream"
+
+	defaultRetryTimeout = 5 * time.Second
 )
 
-type Client struct {
-	uri            string
-	exchange       string
-	clientID       string
-	timeout        time.Duration
-	reconnectRetry time.Duration
-	amqpCh         atomic.Value
-	contentType    ContentType
-	deliveryMode   DeliveryMode
+type client struct {
+	uri      string
+	exchange string
+	clientID string
+
+	errorCh       chan error
+	endMonitoring chan struct{}
+	timeout       time.Duration
+	retryTimeout  time.Duration
+	amqpCh        atomic.Value
+	contentType   ContentType
+	deliveryMode  DeliveryMode
 }
 
 type amqpCh struct {
@@ -38,13 +49,18 @@ type amqpCh struct {
 	errCh chan *amqp.Error
 }
 
-type clientOption func(c *Client)
+// NewSubscriber initializes and returns a Client that implements the Subscriber interface
+func NewSubscriber(msgURI, exchange, routingKey, clientID string, opts ...ClientOption) (Subscriber, error) {
+	c, err := newClient(msgURI, exchange, clientID, opts...)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to initilize new subscriber")
+	}
 
-func NewSubscriber(msgURI, exchange, routingKey, clientID string, opts ...clientOption) (Subscriber, error) {
-	return nil, nil
+	return c, nil
 }
 
-func NewPublisher(msgURI, exchange, routingKey, clientID string, opts ...clientOption) (Publisher, error) {
+// NewPublisher initializes and returns a Client that implements the Publisher interface
+func NewPublisher(msgURI, exchange, routingKey, clientID string, opts ...ClientOption) (Publisher, error) {
 	c, err := newClient(msgURI, exchange, clientID, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initilize new publisher")
@@ -53,11 +69,17 @@ func NewPublisher(msgURI, exchange, routingKey, clientID string, opts ...clientO
 	return c, nil
 }
 
-func NewPubSub(msgURI, exchange, routingKey, clientID string, opts ...clientOption) (PublisherSubscriber, error) {
-	return nil, nil
+// NewPubSub initializes and returns a Client that implements the PublisherSubscriber interface
+func NewPubSub(msgURI, exchange, routingKey, clientID string, opts ...ClientOption) (PublisherSubscriber, error) {
+	c, err := newClient(msgURI, exchange, clientID, opts...)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to initilize new pub/sub")
+	}
+
+	return c, nil
 }
 
-func newClient(msgqURI, exchange, clientID string, opts ...clientOption) (*Client, error) {
+func newClient(msgqURI, exchange, clientID string, opts ...ClientOption) (*client, error) {
 	conn, err := amqp.Dial(msgqURI)
 	if err != nil {
 		return nil, err
@@ -68,12 +90,18 @@ func newClient(msgqURI, exchange, clientID string, opts ...clientOption) (*Clien
 		return nil, err
 	}
 
-	c := &Client{
-		uri:          msgqURI,
-		clientID:     clientID,
-		exchange:     exchange,
-		contentType:  OctetStream,
-		deliveryMode: Transient,
+	c := &client{
+		uri:           msgqURI,
+		clientID:      clientID,
+		exchange:      exchange,
+		contentType:   OctetStream,
+		deliveryMode:  Transient,
+		retryTimeout:  defaultRetryTimeout,
+		endMonitoring: make(chan struct{}),
+	}
+
+	for _, opt := range opts {
+		opt(c)
 	}
 
 	c.amqpCh.Store(&amqpCh{
@@ -82,52 +110,41 @@ func newClient(msgqURI, exchange, clientID string, opts ...clientOption) (*Clien
 		errCh: conn.NotifyClose(make(chan *amqp.Error)),
 	})
 
-	for _, opt := range opts {
-		opt(c)
-	}
-
 	err = declareExchange(ch, exchange)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to declare exchange")
 	}
 
+	go c.monitorConnection()
+
 	return c, nil
 }
 
-func (c *Client) amqpCon() *amqp.Connection {
+func (c *client) amqpCon() *amqp.Connection {
 	return c.amqpCh.Load().(amqpCh).conn
 }
 
-func (c *Client) amqpChannel() *amqp.Channel {
+func (c *client) amqpChannel() *amqp.Channel {
 	return c.amqpCh.Load().(amqpCh).ch
 }
 
-func (c *Client) amqpErrChan() chan *amqp.Error {
+func (c *client) amqpErrChan() chan *amqp.Error {
 	return c.amqpCh.Load().(amqpCh).errCh
 }
 
-func (c *Client) Close() error {
-	if err := c.amqpChannel().Close(); err != nil && !isAmqpErrClosed(err) {
-		return fmt.Errorf("smplmsg: closing send channel failed: %s", err)
+// Close closes the channels
+func (c *client) Close() error {
+	close(c.endMonitoring)
+
+	if err := c.amqpChannel().Close(); err != nil {
+		return errors.Wrap(err, "failed to close channel")
 	}
 
-	if err := c.amqpCon().Close(); err != nil && !isAmqpErrClosed(err) {
-		return fmt.Errorf("msgq: closing connection failed: %s", err)
+	if err := c.amqpCon().Close(); err != nil {
+		return errors.Wrap(err, "failed to close connection")
 	}
 
 	return nil
-}
-
-func isAmqpErrClosed(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	if amqpErr := err.(*amqp.Error); amqpErr == amqp.ErrClosed {
-		return true
-	}
-
-	return false
 }
 
 func declareExchange(ch *amqp.Channel, exchange string) error {
