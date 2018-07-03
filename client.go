@@ -50,7 +50,7 @@ type amqpCh struct {
 }
 
 // NewSubscriber initializes and returns a Client that implements the Subscriber interface
-func NewSubscriber(msgURI, exchange, routingKey, clientID string, opts ...ClientOption) (Subscriber, error) {
+func NewSubscriber(msgURI, exchange, clientID string, opts ...ClientOption) (Subscriber, error) {
 	c, err := newClient(msgURI, exchange, clientID, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initilize new subscriber")
@@ -60,7 +60,7 @@ func NewSubscriber(msgURI, exchange, routingKey, clientID string, opts ...Client
 }
 
 // NewPublisher initializes and returns a Client that implements the Publisher interface
-func NewPublisher(msgURI, exchange, routingKey, clientID string, opts ...ClientOption) (Publisher, error) {
+func NewPublisher(msgURI, exchange, clientID string, opts ...ClientOption) (Publisher, error) {
 	c, err := newClient(msgURI, exchange, clientID, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initilize new publisher")
@@ -70,7 +70,7 @@ func NewPublisher(msgURI, exchange, routingKey, clientID string, opts ...ClientO
 }
 
 // NewPubSub initializes and returns a Client that implements the PublisherSubscriber interface
-func NewPubSub(msgURI, exchange, routingKey, clientID string, opts ...ClientOption) (PublisherSubscriber, error) {
+func NewPubSub(msgURI, exchange, clientID string, opts ...ClientOption) (PublisherSubscriber, error) {
 	c, err := newClient(msgURI, exchange, clientID, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to initilize new pub/sub")
