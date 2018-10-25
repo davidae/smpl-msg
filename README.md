@@ -1,5 +1,5 @@
 # smpl-msg
-A simple AMQP abstraction to easily initialize consumers and/or publishers for an go application. This is simply a bootstrap project to use to MVPs or to extend, which is the focus of this implementation.
+A simple AMQP abstraction to easily initialize consumers and/or publishers for a go app. This is simply a bootstrap project to use for MVPs or to extend, which is the focus of this implementation.
 
 ## Consumers and publishers
 There are 3 possible consumers or publishers you can use,
@@ -61,4 +61,4 @@ for {
 ```
 
 ## Reconnection
-There might be a hicup on the network and the AMQP library does not implement any automatic reconnection functionality. A simple implementation of a one-time retry to re-establish the connection is implemented.
+There might be a hicup on the network and the AMQP library does not implement any automatic reconnection functionality. A simple implementation of a one-time retry to re-establish the connection is available.
