@@ -17,6 +17,9 @@ type Publisher interface {
   Close() error
 }
 
+Okey what is
+this or smth
+
 // PublisherSubscriber is a message topology which can both publish and consume messages on a given route
 type PublisherSubscriber interface {
   Consume(routingKey string) (<-chan amqp.Delivery, <-chan error)
